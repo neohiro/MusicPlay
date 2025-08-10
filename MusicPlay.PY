@@ -6,11 +6,10 @@ import random
 import time
 import threading
 import queue
-# You need to install mutagen: pip install mutagen
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 
-# --- The crucial change for audio priority ---
+# You need to install mutagen: pip install mutagen
 # Initialize pygame mixer with a larger buffer before pygame.init() is called
 # This should be done before any other pygame module is initialized.
 pygame.mixer.pre_init(44100, -16, 2, 8192) # frequency, size, channels, buffer
@@ -21,21 +20,10 @@ class MusicPlayer:
         self.root = root
         self.root.title("Python Music Player")
         
-        # --- Set the window and taskbar icon ---
-        # Get the directory where the script is located
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(script_dir, "icon.ico")
-        
-        if os.path.exists(icon_path):
-            self.root.iconbitmap(icon_path)
-        else:
-            print("Warning: icon.ico not found at", icon_path)
-            # You can add a fallback here, like a default Tkinter icon
-
-        # --- Make the window size fit the content and prevent resizing ---
+        # Make the window size fit the content and prevent resizing
         self.root.resizable(False, False)
         
-        # --- Dark Theme Colors ---
+        # Dark Theme Colors
         bg_color = "#1e1e1e"
         fg_color = "#ffffff"
         button_bg = "#333333"
@@ -43,29 +31,31 @@ class MusicPlayer:
 
         self.root.config(bg=bg_color)
         
-        # --- State variables ---
+        # State variables
         self.playlist = []
         self.current_track_index = 0
         self.paused = False
         self.song_length = 0
         self.song_start_time = 0
         self.paused_time = 0
-        self.updating_slider = False
         self.is_seeking = False
+        
+        # New variable to prevent the progress bar from updating while the user is dragging it
+        self.is_dragging_slider = False
 
-        # --- Threading Setup ---
+        # Threading Setup
         self.playback_command_queue = queue.Queue()
         self.playback_thread = threading.Thread(target=self._playback_worker, daemon=True)
         self.playback_thread.start()
 
-        # --- UI Elements ---
+        # UI Elements
         
         # Track Info Label
         self.track_label = tk.Label(root, text="No track loaded", wraplength=380, font=("Helvetica", 12),
                                      bg=bg_color, fg=fg_color)
         self.track_label.pack(pady=15)
         
-        # --- Progress Frame (for alignment) ---
+        # Progress Frame (for alignment)
         progress_frame = tk.Frame(root, bg=bg_color)
         progress_frame.pack(pady=5, fill=tk.X, padx=25)
 
@@ -73,7 +63,6 @@ class MusicPlayer:
                                    bg=bg_color, fg=fg_color)
         self.time_label.pack()
         
-        # Changed the slider's 'command' to a 'bind' for mouse release
         self.progress_slider = tk.Scale(progress_frame, from_=0, to=100, resolution=1,
                                          orient=tk.HORIZONTAL,
                                          showvalue=0, relief=tk.GROOVE,
@@ -81,7 +70,10 @@ class MusicPlayer:
                                          troughcolor=slider_trough,
                                          highlightbackground=bg_color,
                                          activebackground=button_bg)
-        self.progress_slider.bind("<ButtonRelease-1>", self.seek)
+        # Bind mouse events to the slider
+        self.progress_slider.bind("<Button-1>", self.start_slider_drag)
+        # Bind the mouse release to the root window so the user can release anywhere
+        self.root.bind("<ButtonRelease-1>", self.handle_slider_release)
         self.progress_slider.pack(fill=tk.X, expand=True)
 
         # Main Controls Frame
@@ -134,7 +126,7 @@ class MusicPlayer:
         self.load_folder_button.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=5)
 
         self.root.after(1000, self.check_song_end)
-        
+
     def _playback_worker(self):
         """Worker thread to handle all pygame playback to avoid UI freezing."""
         while True:
@@ -269,29 +261,36 @@ class MusicPlayer:
         
         self.volume_slider.set(new_volume)
 
-    def seek(self, event):
-        if not self.playlist or self.is_seeking: return
-        self.is_seeking = True
-        # Getting the value from the slider
-        seek_time = self.progress_slider.get()
-        self.song_start_time = time.time() - seek_time
-        track_path = self.playlist[self.current_track_index]
-        self.playback_command_queue.put(('seek', (track_path, seek_time)))
+    def start_slider_drag(self, event):
+        """Set a flag when the user starts dragging the slider."""
+        self.is_dragging_slider = True
+
+    def handle_slider_release(self, event):
+        """Handles the mouse release event anywhere on the root window."""
+        if self.is_dragging_slider and self.playlist:
+            # We must be dragging the slider to perform a seek
+            seek_time = self.progress_slider.get()
+            self.song_start_time = time.time() - seek_time
+            track_path = self.playlist[self.current_track_index]
+            self.is_seeking = True
+            self.playback_command_queue.put(('seek', (track_path, seek_time)))
+
+        # Reset the drag flag regardless of where the release happened
+        self.is_dragging_slider = False
 
     def update_progress(self):
         """Robustly updates the UI and reschedules itself."""
         # A song is intended to be playing if it's not paused and not stopped.
         playback_intended = not self.paused and self.song_start_time != 0
 
-        if playback_intended and not self.is_seeking:
+        # Don't update the slider if the user is dragging it or if a seek is in progress
+        if playback_intended and not self.is_dragging_slider and not self.is_seeking:
             # Only update the text if pygame is actually busy
             if pygame.mixer.music.get_busy():
                 elapsed_time = time.time() - self.song_start_time
                 if 0 <= elapsed_time <= self.song_length:
                     self.time_label.config(text=f"{self.format_time(elapsed_time)} / {self.format_time(self.song_length)}")
-                    self.updating_slider = True
                     self.progress_slider.set(elapsed_time)
-                    self.updating_slider = False
             
             # ALWAYS reschedule if playback is intended. This prevents the loop
             # from dying if it runs before the song has started in the thread.
@@ -299,6 +298,10 @@ class MusicPlayer:
         elif self.is_seeking:
             # Continue to check for completion of seeking operation
             self.root.after(100, self.update_progress)
+        else:
+            # If nothing is playing, the loop stops here until a song starts again
+            pass
+
 
     def check_song_end(self):
         """Checks if the current song has finished and moves to the next."""
