@@ -9,310 +9,247 @@ import queue
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 
-# You need to install mutagen: pip install mutagen
-# Initialize pygame mixer with a larger buffer before pygame.init() is called
-# This should be done before any other pygame module is initialized.
-pygame.mixer.pre_init(44100, -16, 2, 8192) # frequency, size, channels, buffer
+# Initialize pygame mixer with a larger buffer for smoother playback
+pygame.mixer.pre_init(44100, -16, 2, 2048)
 pygame.mixer.init()
 
 class MusicPlayer:
+    """A threaded music player application using Tkinter and Pygame."""
     def __init__(self, root):
         self.root = root
         self.root.title("Python Music Player")
-        
-        # Make the window size fit the content and prevent resizing
         self.root.resizable(False, False)
-        
-        # Dark Theme Colors
-        bg_color = "#1e1e1e"
-        fg_color = "#ffffff"
-        button_bg = "#333333"
-        slider_trough = "#444444"
 
-        self.root.config(bg=bg_color)
-        
-        # State variables
+        # --- Theme and Styling ---
+        self.theme = {
+            "bg": "#1e1e1e",
+            "fg": "#ffffff",
+            "btn_bg": "#333333",
+            "slider_trough": "#444444",
+            "active_bg": "#555555",
+            "font_main": ("Helvetica", 12),
+            "font_small": ("Helvetica", 10),
+            "font_btn": ("Arial", 18),
+        }
+        self.root.config(bg=self.theme["bg"])
+
+        # --- State Management ---
         self.playlist = []
         self.current_track_index = 0
-        self.paused = False
-        self.song_length = 0
-        self.song_start_time = 0
-        self.paused_time = 0
-        self.is_seeking = False
-        
-        # New variable to prevent the progress bar from updating while the user is dragging it
-        self.is_dragging_slider = False
+        self.playback_state = {
+            "playing": False,
+            "paused": False,
+            "dragging_slider": False,
+            "start_time": 0,
+            "paused_time": 0,
+            "song_length": 0,
+        }
 
-        # Threading Setup
-        self.playback_command_queue = queue.Queue()
-        self.playback_thread = threading.Thread(target=self._playback_worker, daemon=True)
-        self.playback_thread.start()
+        # --- Threading ---
+        self.command_queue = queue.Queue()
+        threading.Thread(target=self._playback_worker, daemon=True).start()
 
-        # UI Elements
-        
-        # Track Info Label
-        self.track_label = tk.Label(root, text="No track loaded", wraplength=380, font=("Helvetica", 12),
-                                     bg=bg_color, fg=fg_color)
+        self._setup_ui()
+        self.root.after(250, self._update_ui_loop)
+
+    def _setup_ui(self):
+        """Creates and packs all UI widgets."""
+        # --- Track Info ---
+        self.track_label = self._create_widget(tk.Label, text="No track loaded", wraplength=380, font=self.theme["font_main"])
         self.track_label.pack(pady=15)
-        
-        # Progress Frame (for alignment)
-        progress_frame = tk.Frame(root, bg=bg_color)
+
+        # --- Progress Bar and Time ---
+        progress_frame = self._create_widget(tk.Frame)
         progress_frame.pack(pady=5, fill=tk.X, padx=25)
 
-        self.time_label = tk.Label(progress_frame, text="--:-- / --:--", font=("Helvetica", 10),
-                                   bg=bg_color, fg=fg_color)
+        self.time_label = self._create_widget(tk.Label, progress_frame, text="--:-- / --:--", font=self.theme["font_small"])
         self.time_label.pack()
-        
-        self.progress_slider = tk.Scale(progress_frame, from_=0, to=100, resolution=1,
-                                         orient=tk.HORIZONTAL,
-                                         showvalue=0, relief=tk.GROOVE,
-                                         bg=bg_color, fg=fg_color,
-                                         troughcolor=slider_trough,
-                                         highlightbackground=bg_color,
-                                         activebackground=button_bg)
-        # Bind mouse events to the slider
-        self.progress_slider.bind("<Button-1>", self.start_slider_drag)
-        # Bind the mouse release to the root window so the user can release anywhere
-        self.root.bind("<ButtonRelease-1>", self.handle_slider_release)
+
+        self.progress_slider = self._create_widget(
+            tk.Scale, progress_frame, from_=0, to=100, orient=tk.HORIZONTAL, showvalue=0,
+            troughcolor=self.theme["slider_trough"], resolution=0.1, command=self._on_slider_move
+        )
+        self.progress_slider.bind("<ButtonPress-1>", lambda e: self._set_state(dragging_slider=True))
+        self.progress_slider.bind("<ButtonRelease-1>", self._on_slider_release)
         self.progress_slider.pack(fill=tk.X, expand=True)
 
-        # Main Controls Frame
-        controls_frame = tk.Frame(root, bg=bg_color)
+        # --- Control Buttons ---
+        controls_frame = self._create_widget(tk.Frame)
         controls_frame.pack(pady=20)
-        
-        btn_font = ("Arial", 18)
-        self.prev_button = tk.Button(controls_frame, text="⏮", font=btn_font, command=self.prev_track,
-                                     borderwidth=0, bg=button_bg, fg=fg_color, activebackground=bg_color)
-        self.play_button = tk.Button(controls_frame, text="▶", font=btn_font, command=self.play_music,
-                                     borderwidth=0, bg=button_bg, fg=fg_color, activebackground=bg_color)
-        self.pause_button = tk.Button(controls_frame, text="⏸", font=btn_font, command=self.pause_music,
-                                      borderwidth=0, bg=button_bg, fg=fg_color, activebackground=bg_color)
-        self.stop_button = tk.Button(controls_frame, text="⏹", font=btn_font, command=self.stop_music,
-                                     borderwidth=0, bg=button_bg, fg=fg_color, activebackground=bg_color)
-        self.next_button = tk.Button(controls_frame, text="⏭", font=btn_font, command=self.next_track,
-                                     borderwidth=0, bg=button_bg, fg=fg_color, activebackground=bg_color)
-        self.random_button = tk.Button(controls_frame, text="🎲", font=btn_font, command=self.random_track,
-                                      borderwidth=0, bg=button_bg, fg=fg_color, activebackground=bg_color)
+        buttons = {
+            "⏮": self.prev_track, "▶": self.play_music, "⏸": self.pause_music,
+            "⏹": self.stop_music, "⏭": self.next_track, "🎲": self.random_track
+        }
+        for i, (text, cmd) in enumerate(buttons.items()):
+            btn = self._create_widget(tk.Button, controls_frame, text=text, font=self.theme["font_btn"], command=cmd, borderwidth=0, bg=self.theme["btn_bg"], activebackground=self.theme["active_bg"])
+            btn.grid(row=0, column=i, padx=10)
 
-        self.prev_button.grid(row=0, column=0, padx=10)
-        self.play_button.grid(row=0, column=1, padx=10)
-        self.pause_button.grid(row=0, column=2, padx=10)
-        self.stop_button.grid(row=0, column=3, padx=10)
-        self.next_button.grid(row=0, column=4, padx=10)
-        self.random_button.grid(row=0, column=5, padx=10)
-
-        # Volume Slider: Removed label and shifted to the right
-        self.volume_slider = tk.Scale(root, from_=1, to=0, resolution=0.001,
-                                         orient=tk.VERTICAL, command=self.set_volume, length=50, showvalue=0,
-                                         bg=bg_color, fg=fg_color,
-                                         troughcolor=slider_trough,
-                                         highlightbackground=bg_color,
-                                         activebackground=button_bg)
+        # --- Volume Slider ---
+        self.volume_slider = self._create_widget(
+            tk.Scale, from_=1, to=0, orient=tk.VERTICAL, length=50, showvalue=0,
+            troughcolor=self.theme["slider_trough"], resolution=0.01, command=self.set_volume
+        )
         self.volume_slider.set(0.5)
-        pygame.mixer.music.set_volume(0.5)
         self.volume_slider.place(relx=0.98, rely=0.02, anchor='ne')
-        self.volume_slider.bind("<MouseWheel>", self.on_mousewheel)
+        self.volume_slider.bind("<MouseWheel>", self._on_mousewheel)
 
-        # File Loading Frame
-        load_frame = tk.Frame(root, bg=bg_color)
+        # --- File Loading Buttons ---
+        load_frame = self._create_widget(tk.Frame)
         load_frame.pack(pady=20, fill=tk.X, padx=20)
-        
-        self.load_button = tk.Button(load_frame, text="📂 Load Files", command=self.load_music,
-                                     bg=button_bg, fg=fg_color, activebackground=bg_color)
-        self.load_folder_button = tk.Button(load_frame, text="📁 Load Folder", command=self.load_music_folder,
-                                           bg=button_bg, fg=fg_color, activebackground=bg_color)
-        
+        self.load_button = self._create_widget(tk.Button, load_frame, text="📂 Load Files", command=self.load_files, bg=self.theme["btn_bg"], activebackground=self.theme["active_bg"])
+        self.load_folder_button = self._create_widget(tk.Button, load_frame, text="📁 Load Folder", command=self.load_folder, bg=self.theme["btn_bg"], activebackground=self.theme["active_bg"])
         self.load_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
         self.load_folder_button.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=5)
 
-        self.root.after(1000, self.check_song_end)
+    def _create_widget(self, widget_class, master=None, **kwargs):
+        """Helper to create themed widgets."""
+        if master is None: master = self.root
+        style = {"bg": self.theme["bg"], "highlightbackground": self.theme["bg"]}
+        if widget_class in (tk.Label, tk.Button, tk.Scale): style["fg"] = self.theme["fg"]
+        if widget_class is tk.Button: style["activebackground"] = self.theme["active_bg"]
+        return widget_class(master, **{**style, **kwargs})
 
+    # --- Core Logic ---
     def _playback_worker(self):
-        """Worker thread to handle all pygame playback to avoid UI freezing."""
+        """Handles pygame commands in a separate thread."""
         while True:
-            command, *args = self.playback_command_queue.get()
+            command, args = self.command_queue.get()
             try:
                 if command == 'play':
-                    pygame.mixer.music.load(args[0])
-                    pygame.mixer.music.play()
-                    self.is_seeking = False
-                elif command == 'pause':
-                    pygame.mixer.music.pause()
-                elif command == 'unpause':
-                    pygame.mixer.music.unpause()
-                elif command == 'stop':
-                    pygame.mixer.music.stop()
-                elif command == 'seek':
-                    file_path, seek_time = args[0]
-                    pygame.mixer.music.stop()
-                    pygame.mixer.music.load(file_path)
-                    pygame.mixer.music.play(start=seek_time)
-                    self.is_seeking = False
+                    pygame.mixer.music.load(args['path'])
+                    pygame.mixer.music.play(start=args.get('time', 0))
+                else:
+                    getattr(pygame.mixer.music, command)()
             except Exception as e:
-                print(f"Error in playback thread: {e}")
+                print(f"Playback Error: {e}")
             finally:
-                self.playback_command_queue.task_done()
+                self.command_queue.task_done()
 
-    def format_time(self, seconds):
-        if seconds is None or seconds < 0: return "--:--"
-        return time.strftime('%M:%S', time.gmtime(seconds))
+    def _update_ui_loop(self):
+        """Main loop to update time, progress, and check for song end."""
+        state = self.playback_state
+        if state['playing'] and not pygame.mixer.music.get_busy() and not state['paused']:
+            if time.time() - state['start_time'] > 1.5:
+                self.next_track()
+        elif state['playing'] and not state['paused'] and not state['dragging_slider']:
+            elapsed = time.time() - state['start_time']
+            if 0 <= elapsed <= state['song_length']:
+                self.time_label.config(text=f"{self._format_time(elapsed)} / {self._format_time(state['song_length'])}")
+                self.progress_slider.set(elapsed)
+        self.root.after(250, self._update_ui_loop)
 
-    def get_song_length(self, file_path):
-        try:
-            ext = os.path.splitext(file_path)[1].lower()
-            if ext == '.mp3': audio = MP3(file_path)
-            elif ext == '.wav': audio = WAVE(file_path)
-            else: return 0
-            return audio.info.length
-        except Exception:
-            return 0
+    def _set_state(self, **kwargs):
+        """Safely updates the playback state."""
+        self.playback_state.update(kwargs)
 
-    def update_track_info(self):
-        track_path = self.playlist[self.current_track_index]
-        self.track_label.config(text=os.path.basename(track_path))
-        self.song_length = self.get_song_length(track_path)
-        self.progress_slider.config(to=self.song_length)
-        self.time_label.config(text=f"--:-- / {self.format_time(self.song_length)}")
-
-    def load_music_common(self):
-        if self.playlist:
-            self.stop_music()
-            self.current_track_index = 0
-            self.update_track_info()
-
-    def load_music(self):
-        files = filedialog.askopenfilenames(filetypes=[("Audio Files", "*.mp3 *.wav")])
+    def _load_playlist(self, files):
+        """Handles loading and resetting the playlist."""
         if files:
-            self.playlist = list(files)
-            self.load_music_common()
+            self.playlist = sorted(list(files))
+            self.current_track_index = 0
+            self.stop_music()
+            self._update_track_display()
 
-    def load_music_folder(self):
+    def _update_track_display(self):
+        """Updates UI elements for the current track."""
+        if not self.playlist: return
+        track_path = self.playlist[self.current_track_index]
+        self._set_state(song_length=self._get_song_length(track_path))
+        self.track_label.config(text=os.path.basename(track_path))
+        self.progress_slider.config(to=self.playback_state['song_length'])
+        self.time_label.config(text=f"--:-- / {self._format_time(self.playback_state['song_length'])}")
+
+    # --- UI Commands ---
+    def play_music(self):
+        if not self.playlist: return
+        if self.playback_state['paused']:
+            self._set_state(paused=False, start_time=time.time() - self.playback_state['paused_time'])
+            self.command_queue.put(('unpause', None))
+        else:
+            self._start_playback()
+
+    def pause_music(self):
+        if self.playback_state['playing'] and not self.playback_state['paused']:
+            self._set_state(paused=True, paused_time=time.time() - self.playback_state['start_time'])
+            self.command_queue.put(('pause', None))
+
+    def stop_music(self):
+        if self.playback_state['playing']:
+            self.command_queue.put(('stop', None))
+            self._set_state(playing=False, paused=False, start_time=0)
+            self.progress_slider.set(0)
+            if self.playlist:
+                self.time_label.config(text=f"--:-- / {self._format_time(self.playback_state['song_length'])}")
+
+    def _start_playback(self, seek_time=None):
+        """Central method to start or seek a track."""
+        self._update_track_display()
+        start = time.time() - (seek_time or 0)
+        self._set_state(playing=True, paused=False, start_time=start)
+        path = self.playlist[self.current_track_index]
+        self.command_queue.put(('play', {'path': path, 'time': seek_time or 0}))
+
+    def _change_track(self, delta):
+        if not self.playlist: return
+        self.current_track_index = (self.current_track_index + delta) % len(self.playlist)
+        self._start_playback()
+
+    def next_track(self): self._change_track(1)
+    def prev_track(self): self._change_track(-1)
+
+    def random_track(self):
+        if len(self.playlist) < 2: return
+        self.current_track_index = random.randint(0, len(self.playlist) - 1)
+        self._start_playback()
+
+    def load_files(self):
+        files = filedialog.askopenfilenames(filetypes=[("Audio", "*.mp3 *.wav")])
+        self._load_playlist(files)
+
+    def load_folder(self):
         folder = filedialog.askdirectory()
         if folder:
             files = [os.path.join(r, f) for r, _, fs in os.walk(folder) for f in fs if f.lower().endswith((".mp3", ".wav"))]
-            if files:
-                self.playlist = sorted(files)
-                self.load_music_common()
-            else:
-                messagebox.showwarning("No Music Found", "No audio files in this folder.")
-    
-    def play_music(self):
-        """Handles the play button, either starting a new track or unpausing."""
-        if not self.playlist: return
-        
-        if self.paused:
-            self.paused = False
-            self.song_start_time = time.time() - self.paused_time
-            self.playback_command_queue.put(('unpause',))
-        else:
-            # This is for playing a song from the start
-            self.update_track_info()
-            self.song_start_time = time.time()
-            track_path = self.playlist[self.current_track_index]
-            self.playback_command_queue.put(('play', track_path))
-        
-        # Always start the update loop when play is initiated
-        self.update_progress()
-        
-    def pause_music(self):
-        """Pauses the currently playing music."""
-        if pygame.mixer.music.get_busy() and not self.paused:
-            self.paused = True
-            self.paused_time = time.time() - self.song_start_time
-            self.playback_command_queue.put(('pause',))
-    
-    def stop_music(self):
-        self.playback_command_queue.put(('stop',))
-        self.paused = False
-        self.song_start_time = 0
-        self.progress_slider.set(0)
-        total_duration = self.format_time(self.song_length)
-        self.time_label.config(text=f"--:-- / {total_duration}" if self.playlist else "--:-- / --:--")
+            if files: self._load_playlist(files)
+            else: messagebox.showwarning("No Music", "No audio files found.")
 
-    def change_track(self, index_change):
-        """Changes to the next or previous track and plays it."""
-        if not self.playlist: return
-        self.current_track_index = (self.current_track_index + index_change) % len(self.playlist)
-        self.paused = False  # Ensure the new track is not paused
-        self.play_music()
-
-    def next_track(self): self.change_track(1)
-    def prev_track(self): self.change_track(-1)
-
-    def random_track(self):
-        if not self.playlist or len(self.playlist) < 2: return
-        self.current_track_index = random.randint(0, len(self.playlist) - 1)
-        self.paused = False
-        self.play_music()
-        
     def set_volume(self, val):
         pygame.mixer.music.set_volume(float(val))
 
-    def on_mousewheel(self, event):
+    # --- Event Handlers ---
+    def _on_mousewheel(self, event):
         """Changes the volume with the mouse scroll wheel."""
         current_volume = self.volume_slider.get()
-        if event.delta > 0: # Scroll up
-            new_volume = current_volume + 0.01 
-        else: # Scroll down
-            new_volume = current_volume - 0.01 
-        
-        # Clamp the volume between 0 and 1
-        new_volume = max(0, min(1, new_volume))
-        
+        delta = 0.05 if event.delta > 0 else -0.05
+        new_volume = max(0.0, min(1.0, current_volume + delta))
         self.volume_slider.set(new_volume)
 
-    def start_slider_drag(self, event):
-        """Set a flag when the user starts dragging the slider."""
-        self.is_dragging_slider = True
+    def _on_slider_move(self, value_str):
+        """Updates time label as user drags the slider."""
+        if self.playback_state['dragging_slider']:
+            elapsed = float(value_str)
+            self.time_label.config(text=f"{self._format_time(elapsed)} / {self._format_time(self.playback_state['song_length'])}")
 
-    def handle_slider_release(self, event):
-        """Handles the mouse release event anywhere on the root window."""
-        if self.is_dragging_slider and self.playlist:
-            # We must be dragging the slider to perform a seek
-            seek_time = self.progress_slider.get()
-            self.song_start_time = time.time() - seek_time
-            track_path = self.playlist[self.current_track_index]
-            self.is_seeking = True
-            self.playback_command_queue.put(('seek', (track_path, seek_time)))
+    def _on_slider_release(self, event):
+        """Seeks to the new position when the slider is released."""
+        if self.playback_state['dragging_slider']:
+            self._set_state(dragging_slider=False)
+            if self.playback_state['playing']:
+                self._start_playback(seek_time=self.progress_slider.get())
 
-        # Reset the drag flag regardless of where the release happened
-        self.is_dragging_slider = False
+    # --- Utility Methods ---
+    @staticmethod
+    def _format_time(seconds):
+        return time.strftime('%M:%S', time.gmtime(seconds)) if seconds is not None else "--:--"
 
-    def update_progress(self):
-        """Robustly updates the UI and reschedules itself."""
-        # A song is intended to be playing if it's not paused and not stopped.
-        playback_intended = not self.paused and self.song_start_time != 0
-
-        # Don't update the slider if the user is dragging it or if a seek is in progress
-        if playback_intended and not self.is_dragging_slider and not self.is_seeking:
-            # Only update the text if pygame is actually busy
-            if pygame.mixer.music.get_busy():
-                elapsed_time = time.time() - self.song_start_time
-                if 0 <= elapsed_time <= self.song_length:
-                    self.time_label.config(text=f"{self.format_time(elapsed_time)} / {self.format_time(self.song_length)}")
-                    self.progress_slider.set(elapsed_time)
-            
-            # ALWAYS reschedule if playback is intended. This prevents the loop
-            # from dying if it runs before the song has started in the thread.
-            self.root.after(1000, self.update_progress)
-        elif self.is_seeking:
-            # Continue to check for completion of seeking operation
-            self.root.after(100, self.update_progress)
-        else:
-            # If nothing is playing, the loop stops here until a song starts again
-            pass
-
-
-    def check_song_end(self):
-        """Checks if the current song has finished and moves to the next."""
-        if not self.paused and self.song_start_time != 0 and not pygame.mixer.music.get_busy():
-            # If the song is no longer busy and it was playing, it must have ended.
-            # A small time check avoids false positives at the very start of a track.
-            if time.time() - self.song_start_time > 1.5: # 1.5s buffer
-                self.next_track()
-        
-        # Keep this check running continuously
-        self.root.after(1000, self.check_song_end)
+    @staticmethod
+    def _get_song_length(file_path):
+        try:
+            ext = os.path.splitext(file_path)[1].lower()
+            audio = MP3(file_path) if ext == '.mp3' else WAVE(file_path)
+            return audio.info.length
+        except Exception:
+            return 0
 
 if __name__ == "__main__":
     root = tk.Tk()
