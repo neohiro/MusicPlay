@@ -8,6 +8,7 @@ import threading
 import queue
 from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
+import io
 
 # Initialize pygame mixer with a larger buffer for smoother playback
 pygame.mixer.pre_init(44100, -16, 2, 2048)
@@ -43,6 +44,7 @@ class MusicPlayer:
             "start_time": 0,
             "paused_time": 0,
             "song_length": 0,
+            "in_memory_data": None, # Store file data in memory
         }
 
         # --- Threading ---
@@ -91,7 +93,9 @@ class MusicPlayer:
         )
         self.volume_slider.set(0.5)
         self.volume_slider.place(relx=0.98, rely=0.02, anchor='ne')
-        self.volume_slider.bind("<MouseWheel>", self._on_mousewheel)
+        self.volume_slider.bind("<MouseWheel>", self._on_mousewheel) # Windows & macOS
+        self.volume_slider.bind("<Button-4>", self._on_mousewheel)    # Linux scroll up
+        self.volume_slider.bind("<Button-5>", self._on_mousewheel)    # Linux scroll down
 
         # --- File Loading Buttons ---
         load_frame = self._create_widget(tk.Frame)
@@ -117,6 +121,10 @@ class MusicPlayer:
             try:
                 if command == 'play':
                     pygame.mixer.music.load(args['path'])
+                    pygame.mixer.music.play(start=args.get('time', 0))
+                elif command == 'play_from_memory':
+                    mem_file = io.BytesIO(args['data'])
+                    pygame.mixer.music.load(mem_file)
                     pygame.mixer.music.play(start=args.get('time', 0))
                 else:
                     getattr(pygame.mixer.music, command)()
@@ -149,6 +157,8 @@ class MusicPlayer:
             self.current_track_index = 0
             self.stop_music()
             self._update_track_display()
+            with open(self.playlist[self.current_track_index], 'rb') as f:
+                self.playback_state['in_memory_data'] = f.read()
 
     def _update_track_display(self):
         """Updates UI elements for the current track."""
@@ -182,16 +192,23 @@ class MusicPlayer:
                 self.time_label.config(text=f"--:-- / {self._format_time(self.playback_state['song_length'])}")
 
     def _start_playback(self, seek_time=None):
-        """Central method to start or seek a track."""
+        """Central method to start or seek a track, using in-memory data."""
         self._update_track_display()
         start = time.time() - (seek_time or 0)
         self._set_state(playing=True, paused=False, start_time=start)
-        path = self.playlist[self.current_track_index]
-        self.command_queue.put(('play', {'path': path, 'time': seek_time or 0}))
+
+        if self.playback_state['in_memory_data']:
+            self.command_queue.put(('play_from_memory', {'data': self.playback_state['in_memory_data'], 'time': seek_time or 0}))
+        else:
+            path = self.playlist[self.current_track_index]
+            self.command_queue.put(('play', {'path': path, 'time': seek_time or 0}))
 
     def _change_track(self, delta):
         if not self.playlist: return
+        self.stop_music()
         self.current_track_index = (self.current_track_index + delta) % len(self.playlist)
+        with open(self.playlist[self.current_track_index], 'rb') as f:
+            self.playback_state['in_memory_data'] = f.read()
         self._start_playback()
 
     def next_track(self): self._change_track(1)
@@ -199,18 +216,33 @@ class MusicPlayer:
 
     def random_track(self):
         if len(self.playlist) < 2: return
+        self.stop_music()
         self.current_track_index = random.randint(0, len(self.playlist) - 1)
+        with open(self.playlist[self.current_track_index], 'rb') as f:
+            self.playback_state['in_memory_data'] = f.read()
         self._start_playback()
 
     def load_files(self):
         files = filedialog.askopenfilenames(filetypes=[("Audio", "*.mp3 *.wav")])
-        self._load_playlist(files)
+        if files:
+            self.playlist = sorted(list(files))
+            self.current_track_index = 0
+            self.stop_music()
+            with open(self.playlist[0], 'rb') as f:
+                self.playback_state['in_memory_data'] = f.read()
+            self._update_track_display()
 
     def load_folder(self):
         folder = filedialog.askdirectory()
         if folder:
             files = [os.path.join(r, f) for r, _, fs in os.walk(folder) for f in fs if f.lower().endswith((".mp3", ".wav"))]
-            if files: self._load_playlist(files)
+            if files:
+                self.playlist = sorted(files)
+                self.current_track_index = 0
+                self.stop_music()
+                with open(self.playlist[0], 'rb') as f:
+                    self.playback_state['in_memory_data'] = f.read()
+                self._update_track_display()
             else: messagebox.showwarning("No Music", "No audio files found.")
 
     def set_volume(self, val):
@@ -218,9 +250,14 @@ class MusicPlayer:
 
     # --- Event Handlers ---
     def _on_mousewheel(self, event):
-        """Changes the volume with the mouse scroll wheel."""
+        """Changes the volume with the mouse scroll wheel, cross-platform."""
         current_volume = self.volume_slider.get()
-        delta = 0.05 if event.delta > 0 else -0.05
+        delta = 0
+        if event.num == 4 or event.delta > 0:
+            delta = 0.05
+        elif event.num == 5 or event.delta < 0:
+            delta = -0.05
+        
         new_volume = max(0.0, min(1.0, current_volume + delta))
         self.volume_slider.set(new_volume)
 
@@ -240,7 +277,19 @@ class MusicPlayer:
     # --- Utility Methods ---
     @staticmethod
     def _format_time(seconds):
-        return time.strftime('%M:%S', time.gmtime(seconds)) if seconds is not None else "--:--"
+        """Formats seconds into HH:MM:SS or MM:SS format, correctly handling hours."""
+        if seconds is None:
+            return "--:--"
+        
+        total_seconds = int(seconds)
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        else:
+            return f"{minutes:02d}:{seconds:02d}"
 
     @staticmethod
     def _get_song_length(file_path):
