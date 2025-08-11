@@ -6,8 +6,7 @@ import random
 import time
 import threading
 import queue
-from mutagen.mp3 import MP3
-from mutagen.wave import WAVE
+from mutagen import File
 import io
 
 # Initialize pygame mixer with a larger buffer for smoother playback
@@ -223,7 +222,9 @@ class MusicPlayer:
         self._start_playback()
 
     def load_files(self):
-        files = filedialog.askopenfilenames(filetypes=[("Audio", "*.mp3 *.wav")])
+        supported_formats = ["mp3", "ogg", "flac", "m4a", "aac", "opus", "wav", "wma"]
+        file_types = [("Audio Files", " ".join(f"*.{ext}" for ext in supported_formats))]
+        files = filedialog.askopenfilenames(filetypes=file_types)
         if files:
             self.playlist = sorted(list(files))
             self.current_track_index = 0
@@ -235,7 +236,8 @@ class MusicPlayer:
     def load_folder(self):
         folder = filedialog.askdirectory()
         if folder:
-            files = [os.path.join(r, f) for r, _, fs in os.walk(folder) for f in fs if f.lower().endswith((".mp3", ".wav"))]
+            supported_formats = (".mp3", ".ogg", ".flac", ".m4a", ".aac", ".opus", ".wav", ".wma")
+            files = [os.path.join(r, f) for r, _, fs in os.walk(folder) for f in fs if f.lower().endswith(supported_formats)]
             if files:
                 self.playlist = sorted(files)
                 self.current_track_index = 0
@@ -294,10 +296,10 @@ class MusicPlayer:
     @staticmethod
     def _get_song_length(file_path):
         try:
-            ext = os.path.splitext(file_path)[1].lower()
-            audio = MP3(file_path) if ext == '.mp3' else WAVE(file_path)
+            audio = File(file_path)
             return audio.info.length
-        except Exception:
+        except Exception as e:
+            print(f"Error getting length for {file_path}: {e}")
             return 0
 
 if __name__ == "__main__":
