@@ -304,5 +304,6 @@ class MusicPlayer:
 
 if __name__ == "__main__":
     root = tk.Tk()
+    root.iconbitmap('icon.ico')  # Added this line to set the icons
     app = MusicPlayer(root)
     root.mainloop()
