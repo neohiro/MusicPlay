@@ -82,7 +82,7 @@ class MusicPlayer:
             "⏹": self.stop_music, "⏭": self.next_track, "🎲": self.random_track
         }
         for i, (text, cmd) in enumerate(buttons.items()):
-            btn = self._create_widget(tk.Button, controls_frame, text=text, font=self.theme["font_btn"], command=cmd, borderwidth=0, bg=self.theme["btn_bg"], activebackground=self.theme["active_bg"])
+            btn = self._create_widget(tk.Button, controls_frame, text=text, font=self.theme["font_btn"], command=cmd, borderwidth=0, activebackground=self.theme["active_bg"])
             btn.grid(row=0, column=i, padx=10)
 
         # --- Volume Slider ---
@@ -99,8 +99,8 @@ class MusicPlayer:
         # --- File Loading Buttons ---
         load_frame = self._create_widget(tk.Frame)
         load_frame.pack(pady=20, fill=tk.X, padx=20)
-        self.load_button = self._create_widget(tk.Button, load_frame, text="📂 Load Files", command=self.load_files, bg=self.theme["btn_bg"], activebackground=self.theme["active_bg"])
-        self.load_folder_button = self._create_widget(tk.Button, load_frame, text="📁 Load Folder", command=self.load_folder, bg=self.theme["btn_bg"], activebackground=self.theme["active_bg"])
+        self.load_button = self._create_widget(tk.Button, load_frame, text="📂 Load Files", command=self.load_files, activebackground=self.theme["active_bg"])
+        self.load_folder_button = self._create_widget(tk.Button, load_frame, text="📁 Load Folder", command=self.load_folder, activebackground=self.theme["active_bg"])
         self.load_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
         self.load_folder_button.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=5)
 
