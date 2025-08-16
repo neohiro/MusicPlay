@@ -22,8 +22,9 @@ Keyboard Shortcuts:
 - Up Arrow or +: Increase volume
 - Down Arrow or -: Decrease volume
 
+Use the .exe file on Windows.
 
-🛠️ How to Run
+🛠️ How to Run:
 Install dependencies:
 
         pip install pygame
