@@ -36,6 +36,7 @@ class MusicPlayer:
 
         self.playlist = []
         self.current_track_index = -1
+        self.track_history = [] # New list to store played track indices
         self.state = {
             "is_playing": False,
             "is_paused": False,
@@ -173,6 +174,13 @@ class MusicPlayer:
         if not self.playlist:
             return
 
+        # Add the previous track to history, but only if it's a new track
+        if self.current_track_index != index:
+            self.track_history.append(self.current_track_index)
+            # Cap the history to a reasonable size to prevent memory issues
+            if len(self.track_history) > 100:
+                self.track_history.pop(0)
+
         self._update_track_info(index)
         track_path = self.playlist[index]
         self.state.update({
@@ -226,10 +234,17 @@ class MusicPlayer:
             self._load_and_play_track(next_index)
 
     def prev_track(self):
-        if not self.playlist: return
+        """Plays the previous track from the history."""
+        if not self.track_history:
+            return # No history to go back to
+
+        # Pop the current track from history to get the previous one
+        last_played_index = self.track_history.pop()
+
         self.stop_music()
-        prev_index = (self.current_track_index - 1 + len(self.playlist)) % len(self.playlist)
-        self._load_and_play_track(prev_index)
+        # The history list now contains the correct sequence for next_track
+        # Load and play the previous track from the history
+        self._load_and_play_track(last_played_index)
 
     def toggle_shuffle_mode(self):
         """Toggles the shuffle mode and updates the button color."""
