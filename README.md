@@ -5,22 +5,22 @@ A simple and elegant music player application built with Python using tkinter fo
 
 
 ✨ Features
-Clean Interface: A dark-themed, user-friendly interface.
-Music Control: Play, pause, stop, and skip to the next or previous track.
-Volume Slider: Adjust the volume easily with a vertical slider.
-Playback Progress: A progress slider shows the current position in the song.
-Load Music: Load individual music files or entire folders.
-Shuffle Mode: Toggle shuffle to play tracks in a random order.
+- Clean Interface: A dark-themed, user-friendly interface.
+- Music Control: Play, pause, stop, and skip to the next or previous track.
+- Volume Slider: Adjust the volume easily with a vertical slider.
+- Playback Progress: A progress slider shows the current position in the song.
+- Load Music: Load individual music files or entire folders.
+- Shuffle Mode: Toggle shuffle to play tracks in a random order.
 
 
 Keyboard Shortcuts:
 
 
-Space: Play/Pause
-Left Arrow: Previous track
-Right Arrow: Next track
-Up Arrow or +: Increase volume
-Down Arrow or -: Decrease volume
+- Space: Play/Pause
+- Left Arrow: Previous track
+- Right Arrow: Next track
+- Up Arrow or +: Increase volume
+- Down Arrow or -: Decrease volume
 
 
 🛠️ How to Run
