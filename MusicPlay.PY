@@ -27,7 +27,6 @@ class MusicPlayer:
             "font_main": ("Helvetica", 12),
             "font_small": ("Helvetica", 10),
             "font_btn": ("Arial", 18),
-            "active_mode_bg": "#1a5276",
         }
         self.root.config(bg=self.theme["bg"])
 
@@ -211,7 +210,7 @@ class MusicPlayer:
     def toggle_shuffle_mode(self):
         self.state["is_shuffle_mode"] = not self.state["is_shuffle_mode"]
         btn = self.control_buttons.get("🎲")
-        if btn: btn.config(bg=self.theme["active_mode_bg"] if self.state["is_shuffle_mode"] else self.theme["btn_bg"])
+        if btn: btn.config(bg=self.theme["active_bg"] if self.state["is_shuffle_mode"] else self.theme["btn_bg"])
 
     def play_random_track(self):
         if len(self.playlist) < 2: return
