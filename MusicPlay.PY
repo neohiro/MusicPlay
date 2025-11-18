@@ -160,8 +160,10 @@ class MusicPlayer:
             messagebox.showwarning("No Playlist", "Please load some music files first.")
             return
         if self.state['is_paused']:
-            self.state.update({"is_paused": False, "last_play_time": time.time() - self.state['paused_time']})
-            self.command_queue.put(('unpause', None))
+            # FIX: Reload and seek instead of unpausing to prevent driver timeout
+            resume_time = self.state['paused_time']
+            self.state.update({"is_paused": False, "last_play_time": time.time() - resume_time})
+            self.command_queue.put(('load_and_play', {'path': self.playlist[self.current_track_index], 'time': resume_time}))
         elif not self.state['is_playing']:
             self._load_and_play_track(self.current_track_index if self.current_track_index != -1 else 0)
 
