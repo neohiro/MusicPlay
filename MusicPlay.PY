@@ -8,6 +8,7 @@ import threading
 import queue
 from mutagen import File
 import io
+import sys  # Added to handle command line arguments
 
 pygame.mixer.pre_init(44100, -16, 2, 2048)
 pygame.mixer.init()
@@ -48,6 +49,10 @@ class MusicPlayer:
         self.root.bind("<Down>", self._on_volume_key)
         self.root.bind("<plus>", self._on_volume_key)
         self.root.bind("<minus>", self._on_volume_key)
+        
+        # Check for external file launch immediately
+        self._check_external_launch()
+        
         self.root.after(250, self._update_ui_loop)
 
     def _setup_ui(self):
@@ -237,6 +242,12 @@ class MusicPlayer:
             self._load_and_play_track(0)
         elif show_warning:
             messagebox.showwarning("No Music", "No audio files found.")
+
+    def _check_external_launch(self):
+        if len(sys.argv) > 1:
+            file_path = sys.argv[1]
+            if os.path.isfile(file_path):
+                self._handle_loaded_files([file_path])
 
     def set_volume(self, val):
         pygame.mixer.music.set_volume(float(val))
