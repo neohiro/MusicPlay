@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import pygame
+# CHANGED: Import only the mixer module to reduce overhead
+import pygame.mixer
 import os
 import random
 import time
@@ -10,14 +11,15 @@ from mutagen import File
 import io
 import sys
 
-pygame.mixer.pre_init(44100, -16, 2, 2048)
-pygame.mixer.init()
-
 class MusicPlayer:
     def __init__(self, root):
         self.root = root
         self.root.title("Python Music Player")
         self.root.resizable(False, False)
+
+        # CHANGED: Moved initialization here so it doesn't block global scope startup
+        pygame.mixer.pre_init(44100, -16, 2, 2048)
+        pygame.mixer.init()
 
         self.theme = {
             "bg": "#1e1e1e",
@@ -113,8 +115,13 @@ class MusicPlayer:
             command, args = self.command_queue.get()
             try:
                 if command == 'load_and_play':
-                    # Play immediately
+                    # FIX: Explicitly stop playback before loading a new track 
+                    # to ensure the mixer is clear and the track plays reliably.
+                    pygame.mixer.music.stop() 
+                    
                     path = args['path']
+                    
+                    # Play immediately
                     pygame.mixer.music.load(path)
                     pygame.mixer.music.play(start=args.get('time', 0))
                     
@@ -150,6 +157,7 @@ class MusicPlayer:
         # Update progress
         if self.state["is_playing"] and not self.state["is_paused"]:
             if not pygame.mixer.music.get_busy() and time.time() - self.state["last_play_time"] > 1.5:
+                # Track finished playing naturally
                 if self.state["is_shuffle_mode"]:
                     self.play_random_track()
                 else:
@@ -178,6 +186,7 @@ class MusicPlayer:
         # Reset UI immediately, length will update asynchronously
         self.state.update({"song_length": 0}) 
         self.progress_slider.config(to=100) # Temporary scale
+        self.progress_slider.set(0) # Reset slider position
         self.time_label.config(text="--:-- / --:--")
 
     def _load_and_play_track(self, index, seek_time=0):
@@ -197,13 +206,16 @@ class MusicPlayer:
         if self.state['is_paused']:
             resume_time = self.state['paused_time']
             self.state.update({"is_paused": False, "last_play_time": time.time() - resume_time})
+            # When resuming from pause, we still need to load/play from the paused time
             self.command_queue.put(('load_and_play', {'path': self.playlist[self.current_track_index], 'time': resume_time}))
         elif not self.state['is_playing']:
             self._load_and_play_track(self.current_track_index if self.current_track_index != -1 else 0)
 
     def pause_music(self):
         if self.state['is_playing'] and not self.state['is_paused']:
-            self.state.update({"is_paused": True, "paused_time": time.time() - self.state['last_play_time']})
+            # Calculate paused time based on current slider position/elapsed time
+            current_elapsed = time.time() - self.state['last_play_time']
+            self.state.update({"is_paused": True, "paused_time": current_elapsed})
             self.command_queue.put(('pause', None))
 
     def stop_music(self):
