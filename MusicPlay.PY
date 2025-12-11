@@ -8,7 +8,7 @@ import threading
 import queue
 from mutagen import File
 import io
-import sys  # Added to handle command line arguments
+import sys
 
 pygame.mixer.pre_init(44100, -16, 2, 2048)
 pygame.mixer.init()
@@ -165,7 +165,6 @@ class MusicPlayer:
             messagebox.showwarning("No Playlist", "Please load some music files first.")
             return
         if self.state['is_paused']:
-            # FIX: Reload and seek instead of unpausing to prevent driver timeout
             resume_time = self.state['paused_time']
             self.state.update({"is_paused": False, "last_play_time": time.time() - resume_time})
             self.command_queue.put(('load_and_play', {'path': self.playlist[self.current_track_index], 'time': resume_time}))
@@ -187,13 +186,13 @@ class MusicPlayer:
 
     def next_track(self):
         if not self.playlist: return
-        self.stop_music()
+        # Removed explicit stop_music to prevent driver sleep lag
         if self.state["is_shuffle_mode"]: self.play_random_track()
         else: self._load_and_play_track((self.current_track_index + 1) % len(self.playlist))
 
     def prev_track(self):
         if not self.track_history: return
-        self.stop_music()
+        # Removed explicit stop_music to prevent driver sleep lag
         self._load_and_play_track(self.track_history.pop())
 
     def _on_space_key(self, event):
@@ -221,7 +220,7 @@ class MusicPlayer:
 
     def play_random_track(self):
         if len(self.playlist) < 2: return
-        self.stop_music()
+        # Removed explicit stop_music to prevent driver sleep lag
         self._load_and_play_track(random.randint(0, len(self.playlist) - 1))
 
     def load_files(self):
