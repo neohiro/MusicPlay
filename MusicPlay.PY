@@ -38,7 +38,11 @@ class MusicPlayer:
             "is_playing": False, "is_paused": False, "is_dragging_slider": False,
             "last_play_time": 0, "paused_time": 0, "song_length": 0, "is_shuffle_mode": False,
         }
+        
+        # Queues for thread communication
         self.command_queue = queue.Queue()
+        self.ui_queue = queue.Queue()
+        
         threading.Thread(target=self._playback_worker, daemon=True).start()
 
         self._setup_ui()
@@ -50,7 +54,6 @@ class MusicPlayer:
         self.root.bind("<plus>", self._on_volume_key)
         self.root.bind("<minus>", self._on_volume_key)
         
-        # Check for external file launch immediately
         self._check_external_launch()
         
         self.root.after(250, self._update_ui_loop)
@@ -110,8 +113,15 @@ class MusicPlayer:
             command, args = self.command_queue.get()
             try:
                 if command == 'load_and_play':
-                    pygame.mixer.music.load(args['path'])
+                    # Play immediately
+                    path = args['path']
+                    pygame.mixer.music.load(path)
                     pygame.mixer.music.play(start=args.get('time', 0))
+                    
+                    # Calculate length in background so UI doesn't freeze on disk spin-up
+                    length = self._get_song_length(path)
+                    self.ui_queue.put({'type': 'meta_update', 'length': length, 'path': path})
+                    
                 elif command == 'play_from_memory':
                     mem_file = io.BytesIO(args['data'])
                     pygame.mixer.music.load(mem_file)
@@ -124,6 +134,20 @@ class MusicPlayer:
                 self.command_queue.task_done()
 
     def _update_ui_loop(self):
+        # Process messages from worker thread
+        try:
+            while True:
+                msg = self.ui_queue.get_nowait()
+                if msg['type'] == 'meta_update':
+                    # Only update if this is still the current track
+                    if self.playlist and self.playlist[self.current_track_index] == msg['path']:
+                        self.state['song_length'] = msg['length']
+                        self.progress_slider.config(to=self.state['song_length'])
+                        self.time_label.config(text=f"--:-- / {self._format_time(self.state['song_length'])}")
+        except queue.Empty:
+            pass
+
+        # Update progress
         if self.state["is_playing"] and not self.state["is_paused"]:
             if not pygame.mixer.music.get_busy() and time.time() - self.state["last_play_time"] > 1.5:
                 if self.state["is_shuffle_mode"]:
@@ -132,7 +156,9 @@ class MusicPlayer:
                     self.next_track()
             elif not self.state["is_dragging_slider"]:
                 elapsed = time.time() - self.state["last_play_time"]
-                if 0 <= elapsed <= self.state["song_length"]:
+                # Ensure we don't display weird times if length hasn't loaded yet
+                max_len = self.state['song_length'] if self.state['song_length'] > 0 else 100
+                if 0 <= elapsed <= (max_len + 2): # +2 buffer
                     self.time_label.config(text=f"{self._format_time(elapsed)} / {self._format_time(self.state['song_length'])}")
                     self.progress_slider.set(elapsed)
         self.root.after(250, self._update_ui_loop)
@@ -144,18 +170,22 @@ class MusicPlayer:
             self.progress_slider.config(to=0)
             self.time_label.config(text="--:-- / --:--")
             return
+        
         self.current_track_index = index
         track_path = self.playlist[self.current_track_index]
-        self.state.update({"song_length": self._get_song_length(track_path)})
         self.track_label.config(text=os.path.basename(track_path))
-        self.progress_slider.config(to=self.state['song_length'])
-        self.time_label.config(text=f"--:-- / {self._format_time(self.state['song_length'])}")
+        
+        # Reset UI immediately, length will update asynchronously
+        self.state.update({"song_length": 0}) 
+        self.progress_slider.config(to=100) # Temporary scale
+        self.time_label.config(text="--:-- / --:--")
 
     def _load_and_play_track(self, index, seek_time=0):
         if not self.playlist: return
         if self.current_track_index != index:
             self.track_history.append(self.current_track_index)
             if len(self.track_history) > 100: self.track_history.pop(0)
+        
         self._update_track_info(index)
         self.state.update({"is_playing": True, "is_paused": False, "last_play_time": time.time() - seek_time})
         self.command_queue.put(('load_and_play', {'path': self.playlist[index], 'time': seek_time}))
@@ -181,18 +211,15 @@ class MusicPlayer:
             self.command_queue.put(('stop', None))
             self.state.update({"is_playing": False, "is_paused": False})
             self.progress_slider.set(0)
-            if self.playlist:
-                self.time_label.config(text=f"--:-- / {self._format_time(self.state['song_length'])}")
+            self.time_label.config(text="--:-- / --:--")
 
     def next_track(self):
         if not self.playlist: return
-        # Removed explicit stop_music to prevent driver sleep lag
         if self.state["is_shuffle_mode"]: self.play_random_track()
         else: self._load_and_play_track((self.current_track_index + 1) % len(self.playlist))
 
     def prev_track(self):
         if not self.track_history: return
-        # Removed explicit stop_music to prevent driver sleep lag
         self._load_and_play_track(self.track_history.pop())
 
     def _on_space_key(self, event):
@@ -220,7 +247,6 @@ class MusicPlayer:
 
     def play_random_track(self):
         if len(self.playlist) < 2: return
-        # Removed explicit stop_music to prevent driver sleep lag
         self._load_and_play_track(random.randint(0, len(self.playlist) - 1))
 
     def load_files(self):
