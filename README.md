@@ -30,7 +30,7 @@ Keyboard Shortcuts:
 - Up Arrow or +: Increase volume
 - Down Arrow or -: Decrease volume
 
-Use the .exe file on Windows.
+Use the .zip release for your operating system on Windows.
 
 🛠️ How to Run:
 Install dependencies:
@@ -41,3 +41,8 @@ Install dependencies:
 Run the application:
 
         python MusicPlay.PY
+
+## 📦 Installation
+
+You can download the compiled standalone release for your operating system (Windows, macOS, or Linux) directly from the **[Releases](../../releases)** tab. No Python installation is required! Just download the .zip for your OS, extract, and run.
+
