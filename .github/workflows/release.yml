@@ -45,19 +45,19 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           pyinstaller --noconfirm --onedir --windowed --icon=icon.ico MusicPlay.PY
-          Compress-Archive -Path "dist\MusicPlay\*" -DestinationPath "MusicPlay-Windows.zip" -Force
+          Compress-Archive -Path "dist\MusicPlay" -DestinationPath "MusicPlay-Windows.zip" -Force
 
       - name: Build macOS Executable
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --noconfirm --onedir --windowed --icon=icon.ico MusicPlay.PY
+          pyinstaller --noconfirm --onedir --windowed --icon=icon.icns MusicPlay.PY
           cd dist
           zip -r ../MusicPlay-macOS.zip MusicPlay.app
 
       - name: Build Linux Executable
         if: matrix.os == 'ubuntu-latest'
         run: |
-          pyinstaller --noconfirm --onedir --windowed --icon=icon.ico MusicPlay.PY
+          pyinstaller --noconfirm --onedir --windowed --icon=icon.png MusicPlay.PY
           cd dist
           zip -r ../MusicPlay-Linux.zip MusicPlay
 
